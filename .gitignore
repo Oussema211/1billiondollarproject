@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+temp/
+scratch/
+output/
+.env
+.env.*
+doctor_profiles/
+models/

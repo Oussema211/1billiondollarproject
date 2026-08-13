@@ -1,0 +1,93 @@
+PROMPT FOR YOUR AI ASSISTANT — configure this app for this machine
+====================================================================
+
+Paste everything below this line into Claude Code (or another coding
+assistant) running inside this repo, on the `phase0-4-llm-review-pipeline`
+branch.
+
+--------------------------------------------------------------------
+
+You're looking at a local-first medical scribe app (Python, CustomTkinter
+GUI). It's been cloned onto this machine so it can be tested here. Before
+running it, several settings in `src/config.py` are machine- and
+preference-dependent and need to be set correctly for this specific
+computer. Do NOT just recommend values — actually edit `src/config.py`
+with your final choices, verify the app still imports/compiles, then
+commit and push the change to the current branch
+(`phase0-4-llm-review-pipeline`) so the person running this can see what
+you changed and why.
+
+What to figure out
+-------------------
+
+1. Hardware check first. Determine: is there an NVIDIA GPU available (and
+   how much VRAM), how much system RAM, and how much free disk space on
+   this machine. (`config.DEVICE` already auto-detects CUDA vs CPU at
+   import time — no action needed there, just use what you learn to
+   inform the decisions below.)
+
+2. WHISPER_MODEL_SIZE (src/config.py, currently "base"). This is read by
+   both setup_models.py (what gets downloaded) and src/pipeline.py (what
+   gets loaded at runtime) — they MUST agree, so only change it in
+   config.py, never hardcode a size anywhere else. Bigger sizes (small,
+   medium, large-v3) transcribe more accurately but are slower and use
+   more RAM/VRAM. On a CPU-only machine or one with under 16GB RAM, don't
+   go past "small". Pick based on what you find in step 1.
+
+3. LLM_BACKEND (currently "local_gguf"). Three options:
+   - "local_gguf" — runs a local .gguf model file via llama-cpp-python.
+     Needs models/llm/ to contain a .gguf file (get one via
+     `python setup_models.py`, or it may already be there). If more than
+     one .gguf file ends up in that folder, you must also set
+     LLM_GGUF_FILENAME to the exact filename, or the app will refuse to
+     guess which one to load.
+   - "api" — calls an external OpenAI-compatible endpoint instead. Only
+     pick this if there's a real API endpoint to point at; if so, also
+     set LLM_API_BASE_URL and LLM_API_MODEL, and put the key in the
+     environment variable named by LLM_API_KEY_ENV (don't hardcode a key
+     into any file).
+   - "phi3_legacy" — legacy prompt path, only relevant if the loaded
+     model is specifically a Phi-3 GGUF. Leave alone unless that's the
+     model actually in use.
+
+   Ask the person running this which they want if it's not obvious from
+   what's already downloaded; don't guess between local_gguf and api on
+   your own.
+
+4. RETAIN_RAW_AUDIO (currently False). This is a genuine privacy/storage
+   decision, not a technical one — turning it on means actual recorded
+   doctor-patient audio gets permanently saved to audio/ instead of being
+   deleted after processing (mic recordings) or left where the user had
+   it (uploads). Roughly 1.9 MB per minute of audio if enabled, and no
+   auto-cleanup exists. Do not flip this to True on your own judgment —
+   ask the person running this whether they want retained audio for this
+   test session, and only change it if they explicitly say yes.
+
+5. SIMILARITY_THRESHOLD (currently 0.70). Speaker-identification
+   confidence cutoff for matching a voice against enrolled doctor
+   profiles. Leave this alone unless the person testing reports obviously
+   wrong Doctor/Patient labeling after enrolling a profile — it's a
+   model-tuning knob, not a machine-dependent setting.
+
+What NOT to touch
+------------------
+- Don't change pipeline.py, report_generator.py, validation.py,
+  llm_backend.py, or gui.py — none of this requires code changes, only
+  src/config.py values.
+- Don't hardcode an API key anywhere — use the environment variable.
+- If setup_models.py hasn't been run yet, mention that it downloads
+  roughly 10GB and currently fetches Llama-3.1-8B (not Qwen3) for the
+  local LLM — this is a known, previously-flagged gap, not a bug; flag it
+  to the person running this rather than silently trying to fix it.
+
+When done
+---------
+Run `python -m py_compile src/config.py` to confirm it's still valid,
+then:
+
+    git add src/config.py
+    git commit -m "Configure for this machine: <one line summary of what you set and why>"
+    git push
+
+Report back to the person running this exactly what you set each value
+to and why, in plain language.

@@ -41,7 +41,7 @@ SIMILARITY_THRESHOLD = 0.70
 # Whisper transcription model size — single source of truth read by both
 # setup_models.py (download) and pipeline.py (runtime load). Must stay in
 # sync between the two or setup fetches a model that's never used.
-WHISPER_MODEL_SIZE = "base"
+WHISPER_MODEL_SIZE = "small"
 
 # ── LLM backend selection ────────────────────────────────────────────────
 # "local_gguf"  — llama-cpp-python, chat template read from the loaded GGUF

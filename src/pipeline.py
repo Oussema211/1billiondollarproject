@@ -126,10 +126,10 @@ class AudioPipeline:
         )
         self.progress("[OK] Speaker embedding model loaded")
 
-        self.progress("Loading Whisper transcription model (Base - faster)...")
+        self.progress(f"Loading Whisper transcription model ({config.WHISPER_MODEL_SIZE})...")
         compute = "float16" if config.DEVICE == "cuda" else "int8"
         self.whisper = WhisperModel(
-            "base",
+            config.WHISPER_MODEL_SIZE,
             device=config.DEVICE,
             compute_type=compute,
             download_root=str(config.WHISPER_DIR),
@@ -150,9 +150,19 @@ class AudioPipeline:
         return profiles
 
     def identify_speakers(self, diarization, waveform, sample_rate, profiles):
+        """Returns (label_map, debug, resolution).
+
+        `resolution` records which tier decided the "Doctor" label, purely
+        for downstream visibility (Phase 1 validation layer) — it does not
+        influence any of the assignment logic below, which is unchanged.
+        resolution["tier"] is one of: "no_profiles_speaking_time",
+        "threshold_match", "best_score_promoted", "speaking_time_fallback",
+        "unresolved" (nothing below ever fired, e.g. no usable speaker audio).
+        """
         spk_audio = extract_speaker_audio(diarization, waveform, sample_rate)
         label_map = {}
         debug = {}
+        resolution = {"tier": "unresolved", "score": None}
 
         if not profiles:
             # No profiles enrolled — assign Doctor to the speaker with the
@@ -163,7 +173,8 @@ class AudioPipeline:
                     label_map[spk] = {"role": "Doctor", "name": "Attending Physician"}
                 else:
                     label_map[spk] = {"role": "Patient", "name": None}
-            return label_map, {"info": "No enrolled profiles — role assigned by speaking time."}
+            resolution = {"tier": "no_profiles_speaking_time", "score": None}
+            return label_map, {"info": "No enrolled profiles — role assigned by speaking time."}, resolution
 
         # Score every speaker against every enrolled profile
         scores = {}   # spk -> (best_doc, best_score)
@@ -182,12 +193,17 @@ class AudioPipeline:
 
         # Assign roles for speakers that cleared the threshold
         matched_any = False
+        best_matched_score, best_matched_doc = -1.0, None
         for spk, (best_doc, best_score) in scores.items():
             if best_score >= config.SIMILARITY_THRESHOLD:
                 label_map[spk] = {"role": "Doctor", "name": best_doc}
                 matched_any = True
+                if best_score > best_matched_score:   # reporting only, doesn't affect assignment
+                    best_matched_score, best_matched_doc = best_score, best_doc
             else:
                 label_map[spk] = {"role": "Patient", "name": None}
+        if matched_any:
+            resolution = {"tier": "threshold_match", "score": round(best_matched_score, 3)}
 
         # ── Fallback: no speaker cleared the threshold ────────────────────
         # Possible causes: bad enrollment audio, different mic, very low scores.
@@ -203,14 +219,16 @@ class AudioPipeline:
                 doc_name = scores[best_spk_by_score][0]
                 label_map[best_spk_by_score] = {"role": "Doctor", "name": doc_name}
                 debug["fallback"] = f"score below threshold ({best_score_val:.3f}), promoted best match"
+                resolution = {"tier": "best_score_promoted", "score": round(best_score_val, 3)}
             else:
                 # All scores negative (voices very different from enrolled) —
                 # fall back to speaking-time heuristic
                 most_spk = max(spk_audio, key=lambda s: spk_audio[s].numel())
                 label_map[most_spk] = {"role": "Doctor", "name": "Attending Physician"}
                 debug["fallback"] = "all scores negative, used speaking-time heuristic"
+                resolution = {"tier": "speaking_time_fallback", "score": None}
 
-        return label_map, debug
+        return label_map, debug, resolution
 
     def transcribe(self, audio_path: str):
         segments, info = self.whisper.transcribe(
@@ -300,7 +318,7 @@ class AudioPipeline:
 
         self.progress("Identifying speakers...")
         profiles = self.load_doctor_profiles()
-        label_map, debug = self.identify_speakers(diar, waveform, sr, profiles)
+        label_map, debug, speaker_resolution = self.identify_speakers(diar, waveform, sr, profiles)
         self.progress(f"Speaker scores: {debug}")
 
         self.progress("Transcribing with Whisper...")
@@ -321,4 +339,5 @@ class AudioPipeline:
             "patient_name": patient_name,
             "audio_duration_s": audio_duration_s,
             "word_count": word_count,
+            "speaker_resolution": speaker_resolution,
         }

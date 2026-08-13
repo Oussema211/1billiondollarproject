@@ -1,7 +1,17 @@
 import json
 import re
-from llama_cpp import Llama
-from . import config
+from .llm_backend import build_llm_backend
+from .validation import validate_schema, check_groundedness
+
+# Used when extract() is called without an explicit speaker_confidence (e.g.
+# direct/legacy callers) so report["_review"]["speaker_confidence"] always
+# has a consistent shape rather than being absent.
+DEFAULT_SPEAKER_CONFIDENCE = {
+    "tier": "unresolved",
+    "score": None,
+    "manually_overridden": False,
+    "override_name": None,
+}
 
 SYSTEM_PROMPT = """You are a clinical scribe AI. Extract a medical report from this doctor-patient transcript.
 Return ONLY valid JSON, no markdown:
@@ -17,44 +27,15 @@ Return ONLY valid JSON, no markdown:
 }
 Rules: Only extract what is explicitly mentioned. Use null for missing fields. No invented details."""
 
-# Maximum characters of transcript text sent to the LLM.
-# Phi-3-mini-4k supports 4096 tokens; system prompt ~200 tokens, leaving
-# ~3800 tokens for transcript (~5000-5500 chars at ~1.4 chars/token).
+# Maximum characters of transcript text sent to the LLM. Assumes a ~4096
+# token context; system prompt ~200 tokens, leaving ~3800 tokens for
+# transcript (~5000-5500 chars at ~1.4 chars/token).
 MAX_TRANSCRIPT_CHARS = 5_500
 
 
 class ReportGenerator:
-    def __init__(self, model_path=None, n_ctx=4096):
-        if model_path is None:
-            ggufs = list(config.LLM_DIR.glob("*.gguf"))
-            if not ggufs:
-                raise FileNotFoundError(
-                    "No GGUF model in models/llm.\n"
-                    "Run setup_models.py first or place a .gguf file there."
-                )
-            # Prefer Phi-3 Q4 for best quality/speed tradeoff on CPU
-            phi_q4 = [g for g in ggufs if 'phi' in g.name.lower() and 'q4' in g.name.lower()]
-            if phi_q4:
-                model_path = phi_q4[0]
-            else:
-                # Fallback: smallest model
-                ggufs.sort(key=lambda p: p.stat().st_size)
-                model_path = ggufs[0]
-
-        import os
-        threads = os.cpu_count() or 8  # use ALL logical cores
-        n_gpu = 0  # Intel Iris Xe not supported
-
-        print(f"Loading LLM: {model_path.name} | threads={threads} | ctx=4096")
-        self.llm = Llama(
-            model_path=str(model_path),
-            n_ctx=4096,
-            n_batch=512,
-            n_threads=threads,
-            n_threads_batch=threads,
-            n_gpu_layers=n_gpu,
-            verbose=False,
-        )
+    def __init__(self):
+        self.backend = build_llm_backend()
 
     # ── Transcript processing ────────────────────────────────────────────────
 
@@ -117,16 +98,6 @@ class ReportGenerator:
 
         return head + "\n[...transcript truncated for length...]\n" + tail
 
-    # ── Prompt formatting ────────────────────────────────────────────────────
-
-    def _format_prompt(self, transcript: str) -> str:
-        # Phi-3 chat format
-        return (
-            f"<|system|>\n{SYSTEM_PROMPT}<|end|>\n"
-            f"<|user|>\n{transcript}<|end|>\n"
-            f"<|assistant|>\n"
-        )
-
     # ── JSON repair ──────────────────────────────────────────────────────────
 
     @staticmethod
@@ -176,17 +147,19 @@ class ReportGenerator:
 
     # ── Public API ───────────────────────────────────────────────────────────
 
-    def extract(self, labeled_transcript: list) -> dict:
-        # Group consecutive same-speaker segments → cleaner, token-efficient text
+    def extract(self, labeled_transcript: list, speaker_confidence: dict | None = None) -> dict:
+        # Group consecutive same-speaker segments → cleaner, token-efficient text.
+        # Kept full/untruncated here — this is also the source text used for
+        # the groundedness check below, before it gets cut down for the LLM.
         text = self._group_turns(labeled_transcript)
-        text = self._truncate_transcript(text)
-        prompt = self._format_prompt(text)
+        truncated = self._truncate_transcript(text)
 
-        out = self.llm(
-            prompt,
-            max_tokens=512,
-            temperature=0.1,
-            stop=["<|end|>", "</s>", "<|user|>"],
-        )
-        raw = out["choices"][0]["text"].strip()
-        return self._repair_json(raw)
+        raw = self.backend.generate(SYSTEM_PROMPT, truncated, temperature=0.1, max_tokens=512)
+        report = self._repair_json(raw)
+
+        flags = validate_schema(report) + check_groundedness(report, text)
+        report["_review"] = {
+            "flags": flags,
+            "speaker_confidence": speaker_confidence or DEFAULT_SPEAKER_CONFIDENCE,
+        }
+        return report

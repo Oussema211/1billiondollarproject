@@ -1,4 +1,4 @@
-customtkinter==5.2.2
+customtkinter==6.0.0
 torch>=2.3.0
 torchaudio>=2.3.0
 pyannote.audio>=3.3.0
@@ -8,3 +8,7 @@ huggingface-hub>=0.24.0
 python-docx>=1.1.2
 sounddevice>=0.4.6
 scipy>=1.10.0
+# NOTE: >=0.2.90 chosen for GGUF-embedded chat_template auto-detection in
+# create_chat_completion(); unverified against a real Qwen3 GGUF in this env.
+llama-cpp-python>=0.2.90
+requests>=2.31.0

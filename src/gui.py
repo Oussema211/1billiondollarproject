@@ -476,6 +476,10 @@ class MedicalScribeApp(ctk.CTk):
             self.entry_audio.insert(0, f)
 
     def _run_file_pipeline(self):
+        if not self.pipeline or not self.report_gen:
+            messagebox.showinfo("Models Loading", "AI models are currently loading into memory. Please wait a moment until the status shows 'Ready'.")
+            return
+
         path = self.entry_audio.get().strip()
         if not path or not Path(path).exists():
             messagebox.showerror("Error", "Please select a valid audio file.")
@@ -495,12 +499,19 @@ class MedicalScribeApp(ctk.CTk):
 
     def _process_file_thread(self, audio_path: str, patient_name: str, doctor_name: str, fast_mode: bool, lang: str):
         try:
+            if not self.pipeline or not self.report_gen:
+                self._log("Waiting for AI models to finish loading...")
+                while not self.pipeline or not self.report_gen:
+                    time.sleep(0.5)
+
             self.report_box.delete("1.0", "end")
             self.report_box.insert("1.0", f"Processing consultation audio file: {Path(audio_path).name}...\n\nExtracting clinical findings and transcribing with Whisper...")
 
             self.current_patient = patient_name
             self.current_attending = doctor_name
-            profiles = self.pipeline.load_doctor_profiles()
+            
+            # Safely load doctor profiles
+            profiles = self.pipeline.load_doctor_profiles() if self.pipeline else {}
 
             if fast_mode:
                 self._log(f"⚡ Fast Processing: {Path(audio_path).name}...")

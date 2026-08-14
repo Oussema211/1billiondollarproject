@@ -128,10 +128,13 @@ class AudioPipeline:
 
         self.progress("Loading Whisper transcription model (Base - faster)...")
         compute = "float16" if config.DEVICE == "cuda" else "int8"
+        threads = min(8, os.cpu_count() or 4)
         self.whisper = WhisperModel(
             "base",
             device=config.DEVICE,
             compute_type=compute,
+            cpu_threads=threads,
+            num_workers=2,
             download_root=str(config.WHISPER_DIR),
         )
         self.progress("[OK] Whisper model loaded")
@@ -190,22 +193,15 @@ class AudioPipeline:
                 label_map[spk] = {"role": "Patient", "name": None}
 
         # ── Fallback: no speaker cleared the threshold ────────────────────
-        # Possible causes: bad enrollment audio, different mic, very low scores.
-        # Heuristic: the speaker with the HIGHEST score (even if below threshold)
-        # is most likely the doctor; if scores are all near zero, fall back to
-        # speaking-time (most audio = Doctor).
         if not matched_any and scores:
             best_spk_by_score = max(scores, key=lambda s: scores[s][1])
             best_score_val = scores[best_spk_by_score][1]
 
             if best_score_val > 0.0:
-                # Some positive match — promote the best candidate
                 doc_name = scores[best_spk_by_score][0]
                 label_map[best_spk_by_score] = {"role": "Doctor", "name": doc_name}
                 debug["fallback"] = f"score below threshold ({best_score_val:.3f}), promoted best match"
             else:
-                # All scores negative (voices very different from enrolled) —
-                # fall back to speaking-time heuristic
                 most_spk = max(spk_audio, key=lambda s: spk_audio[s].numel())
                 label_map[most_spk] = {"role": "Doctor", "name": "Attending Physician"}
                 debug["fallback"] = "all scores negative, used speaking-time heuristic"
@@ -217,8 +213,10 @@ class AudioPipeline:
             audio_path,
             beam_size=1,
             best_of=1,
+            temperature=0.0,
+            condition_on_previous_text=False,
             vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500),
+            vad_parameters=dict(min_silence_duration_ms=400),
         )
         return list(segments), info
 

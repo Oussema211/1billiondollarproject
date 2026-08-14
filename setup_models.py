@@ -36,18 +36,24 @@ print(f"Downloading Whisper ({WHISPER_MODEL_SIZE})...")
 from faster_whisper import WhisperModel
 _ = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8", download_root=str(MODELS / "whisper"))
 
-# 5. LLM — Llama 3.1 8B Instruct (Q4_K_M quantization, ~4.7 GB)
-print("Downloading local LLM (Llama 3.1 8B Q4_K_M)...")
+# 5. LLM — Qwen3-4B Instruct (Q4_K_M quantization, ~2.5 GB)
+# The previous TheBloke/Llama-3.1-8B-Instruct-GGUF repo no longer exists
+# (404 Repository Not Found as of 2026-08) and was never the app's actual
+# target model anyway — LocalGGUFBackend was built around Qwen3's chat
+# template. Repo/filename verified live against the HF API before pinning
+# here, not guessed. 4B/Q4_K_M chosen over larger Qwen3 sizes as a
+# reasonable fit for CPU-only, modest-RAM machines; bump to a larger size
+# manually if running on stronger hardware.
+print("Downloading local LLM (Qwen3-4B Q4_K_M)...")
 LLM_DIR = MODELS / "llm"
 LLM_DIR.mkdir(exist_ok=True)
 
-# Using TheBloke's GGUF mirror (standard, well-tested)
 hf_hub_download(
-    repo_id="TheBloke/Llama-3.1-8B-Instruct-GGUF",
-    filename="llama-3.1-8b-instruct.Q4_K_M.gguf",
+    repo_id="Qwen/Qwen3-4B-GGUF",
+    filename="Qwen3-4B-Q4_K_M.gguf",
     local_dir=str(LLM_DIR),
     local_dir_use_symlinks=False,
 )
 
 print("\nAll models downloaded successfully!")
-print(f"Total size: check {MODELS} folder (~10 GB expected)")
+print(f"Total size: check {MODELS} folder (~3 GB expected with Qwen3-4B Q4_K_M)")

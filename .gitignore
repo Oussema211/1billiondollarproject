@@ -8,3 +8,4 @@ output/
 .env.*
 doctor_profiles/
 models/
+audio/

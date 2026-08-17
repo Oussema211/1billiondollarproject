@@ -87,7 +87,7 @@ class MedicalScribeApp(ctk.CTk):
                      font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w")
 
         self.backend_menu = ctk.CTkOptionMenu(
-            backend_frame, values=["local_gguf", "api", "phi3_legacy"],
+            backend_frame, values=["local_gguf", "api", "anthropic_api", "phi3_legacy"],
             command=self._on_backend_selected, width=190, state="disabled",
         )
         self.backend_menu.set(config.LLM_BACKEND)
@@ -120,6 +120,8 @@ class MedicalScribeApp(ctk.CTk):
         if kind == "APIBackend":
             host = (config.LLM_API_BASE_URL or "?").split("//")[-1].split("/")[0]
             return f"Active backend: API\n({config.LLM_API_MODEL or '?'} @ {host})", "#27ae60"
+        if kind == "AnthropicBackend":
+            return f"Active backend: Anthropic API\n({config.ANTHROPIC_MODEL})", "#27ae60"
         return f"Active backend: {kind}", "#27ae60"
 
     def _set_backend_indicator(self, text: str, color: str):

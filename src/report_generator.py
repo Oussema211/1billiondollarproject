@@ -152,6 +152,12 @@ class ReportGenerator:
         # Kept full/untruncated here — this is also the source text used for
         # the groundedness check below, before it gets cut down for the LLM.
         text = self._group_turns(labeled_transcript)
+        if not text.strip():
+            raise ValueError(
+                "No speech was detected in this recording — there's nothing to "
+                "summarize. Check the microphone input (wrong device, muted, or "
+                "no permission granted) and try again."
+            )
         truncated = self._truncate_transcript(text)
 
         raw = self.backend.generate(SYSTEM_PROMPT, truncated, temperature=0.1, max_tokens=512)

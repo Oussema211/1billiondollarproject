@@ -128,6 +128,18 @@ class Phi3LegacyBackend(LLMBackend):
         return out["choices"][0]["text"].strip()
 
 
+def _raise_for_status_with_body(resp):
+    """Like resp.raise_for_status(), but includes the response body in the
+    exception — raise_for_status() alone discards it, leaving only a bare
+    status code with no clue what was actually wrong with the request.
+    """
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"{resp.status_code} {resp.reason} for url: {resp.url}\n"
+            f"Response body: {resp.text[:2000]}"
+        )
+
+
 class APIBackend(LLMBackend):
     """Calls an OpenAI-compatible /chat/completions endpoint. Provider-agnostic:
     only base URL, an env var name for the API key, and a model name are
@@ -166,9 +178,57 @@ class APIBackend(LLMBackend):
             json=payload,
             timeout=120,
         )
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         data = resp.json()
         return data["choices"][0]["message"]["content"].strip()
+
+
+class AnthropicBackend(LLMBackend):
+    """Calls Anthropic's native Messages API directly — POST /v1/messages,
+    x-api-key auth, response content as a list of blocks. Deliberately NOT
+    routed through APIBackend's OpenAI-compatible /chat/completions shape:
+    those are two different wire formats, and Anthropic's own guidance is to
+    call the real Messages API rather than shim it through an OpenAI-shaped
+    client.
+    """
+
+    API_URL = "https://api.anthropic.com/v1/messages"
+    API_VERSION = "2023-06-01"
+
+    def __init__(self, model: str, api_key_env: str):
+        if not model:
+            raise ValueError("AnthropicBackend requires config.ANTHROPIC_MODEL to be set")
+        self.model = model
+        self.api_key = os.environ.get(api_key_env, "")
+        if not self.api_key:
+            raise ValueError(
+                f"AnthropicBackend requires an API key in the "
+                f"{api_key_env!r} environment variable, but it's unset."
+            )
+
+    def generate(self, system_prompt: str, user_prompt: str,
+                 temperature: float = 0.1, max_tokens: int = 512) -> str:
+        import requests
+
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": self.API_VERSION,
+            "content-type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "temperature": temperature,
+        }
+        resp = requests.post(self.API_URL, headers=headers, json=payload, timeout=120)
+        _raise_for_status_with_body(resp)
+        data = resp.json()
+        return "".join(
+            block.get("text", "") for block in data.get("content", [])
+            if block.get("type") == "text"
+        ).strip()
 
 
 def build_llm_backend() -> LLMBackend:
@@ -187,7 +247,12 @@ def build_llm_backend() -> LLMBackend:
             api_key_env=config.LLM_API_KEY_ENV,
             model=config.LLM_API_MODEL,
         )
+    if backend == "anthropic_api":
+        return AnthropicBackend(
+            model=config.ANTHROPIC_MODEL,
+            api_key_env=config.LLM_API_KEY_ENV,
+        )
     raise ValueError(
         f"Unknown config.LLM_BACKEND={backend!r}; expected "
-        "'local_gguf', 'phi3_legacy', or 'api'."
+        "'local_gguf', 'phi3_legacy', 'api', or 'anthropic_api'."
     )

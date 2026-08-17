@@ -44,19 +44,28 @@ SIMILARITY_THRESHOLD = 0.70
 WHISPER_MODEL_SIZE = "small"
 
 # ── LLM backend selection ────────────────────────────────────────────────
-# "local_gguf"  — llama-cpp-python, chat template read from the loaded GGUF
-# "api"         — OpenAI-compatible chat completions endpoint
-# "phi3_legacy" — original hardcoded Phi-3 <|system|>/<|user|> tag format
+# "local_gguf"   — llama-cpp-python, chat template read from the loaded GGUF
+# "api"          — OpenAI-compatible chat completions endpoint (generic, any provider)
+# "phi3_legacy"  — original hardcoded Phi-3 <|system|>/<|user|> tag format
+# "anthropic_api" — Anthropic's native Messages API (not the OpenAI-compatible "api" path)
+# NOTE: default stays "local_gguf" here — this is the shared branch default;
+# switch backends at runtime via the sidebar dropdown instead of editing this.
 LLM_BACKEND = "local_gguf"
 
 # local_gguf backend options
 LLM_GGUF_FILENAME = None       # exact filename in LLM_DIR to load; required if >1 .gguf present
 LLM_LOCAL_CHAT_FORMAT = None   # optional llama-cpp-python built-in chat_format override (e.g. "chatml")
 
-# api backend options
+# api backend options (generic OpenAI-compatible)
 LLM_API_BASE_URL = None        # e.g. "https://api.example.com/v1"
-LLM_API_KEY_ENV = "LLM_API_KEY"  # name of the env var holding the API key
+LLM_API_KEY_ENV = "LLM_API_KEY"  # name of the env var holding the API key (shared with anthropic_api)
 LLM_API_MODEL = None           # model name to send in the request payload
+
+# anthropic_api backend options (native Anthropic Messages API)
+# claude-haiku-4-5 is the cheapest current model ($1/$5 per MTok) — plenty
+# for testing this pipeline's extraction; bump to a stronger model if the
+# extraction quality itself needs evaluating, not just the mechanism.
+ANTHROPIC_MODEL = "claude-haiku-4-5"
 
 # ── Traceability persistence (Phase 3) ──────────────────────────────────
 # Whether to keep a permanent copy of processed audio in AUDIO_DIR, linked
